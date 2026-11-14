@@ -5,7 +5,7 @@ import pytest
 from PIL import Image
 from fastapi.testclient import TestClient
 from backend.app import app, render_lock
-from backend.imaging import decode_image, image_events, grid_events, radial_grid, ImageError, MAX_BYTES
+from backend.imaging import decode_image, image_events, grid_events, radial_grid, circle_grid, ImageError, MAX_BYTES
 
 client = TestClient(app)
 
@@ -289,8 +289,32 @@ def test_radial_scan_follows_full_rectangular_edge():
     response = client.get('/demo')
     assert response.status_code == 200
     assert 'id="scan-line"' in response.text
+    assert 'id="scan-circle"' in response.text
+    assert 'value="circle_outward"' in response.text
+    assert 'value="circle_inward"' in response.text
     assert 'audio.currentTime' not in response.text  # actual variable is player
     assert 'player.currentTime/player.duration' in response.text
+
+
+
+def test_circle_scan_moves_between_center_and_outer_ring():
+    image = np.zeros((120, 120, 3))
+    center = (119 / 2, 119 / 2)
+    yy, xx = np.ogrid[:120, :120]
+    radius = np.hypot(xx - center[0], yy - center[1])
+    image[radius < 20] = [1, 0, 0]
+    image[radius > 40] = [0, 0, 1]
+    outward = circle_grid(image)
+    inward = circle_grid(image, inward=True)
+    assert np.allclose(outward[:, 0], [1, 0, 0], atol=.01)
+    assert np.allclose(outward[:, -1], [0, 0, 1], atol=.01)
+    assert np.allclose(inward[:, 0], outward[:, -1])
+    assert np.allclose(inward[:, -1], outward[:, 0])
+    for mode, direction in [('circle_outward', 'center-to-edge'), ('circle_inward', 'edge-to-center')]:
+        _, mapping = image_events(image, 2, mode)
+        assert mapping['scanMode'] == mode
+        assert mapping['radialDirection'] == direction
+        assert mapping['angularBands'] == 12
 
 
 def test_api_scan_modes_produce_distinct_audio_and_metadata():
@@ -303,7 +327,7 @@ def test_api_scan_modes_produce_distinct_audio_and_metadata():
     Image.fromarray(image).save(buffer, format='PNG')
     data = buffer.getvalue()
     outputs = []
-    for mode in ('clockwise', 'linear'):
+    for mode in ('clockwise', 'linear', 'circle_outward', 'circle_inward'):
         files = {'file': ('map.png', data, 'image/png')}
         metadata = client.post(f'/analyze?duration_seconds=2&scan_mode={mode}', files=files).json()['mapping']
         assert metadata['scanMode'] == mode
@@ -311,8 +335,8 @@ def test_api_scan_modes_produce_distinct_audio_and_metadata():
         assert response.headers['x-scan-mode'] == mode
         assert len(pcm(response)) == 44100
         outputs.append(response.content)
-    assert outputs[0] != outputs[1]
-    assert len(outputs[0]) == len(outputs[1])
+    assert len(set(outputs)) == len(outputs)
+    assert len({len(output) for output in outputs}) == 1
 
 
 def test_invalid_scan_mode_is_rejected():
@@ -324,11 +348,15 @@ def test_invalid_scan_mode_is_rejected():
 def test_sound_template_catalog_and_validation():
     catalog = client.get('/templates').json()
     assert catalog['defaultTemplate'] == 'original'
-    assert [item['id'] for item in catalog['templates']] == ['original', 'orchestral', 'medieval', 'modern']
+    assert [item['id'] for item in catalog['templates']] == ['original', 'orchestral', 'medieval', 'modern', 'heavenly']
     orchestral = next(item for item in catalog['templates'] if item['id'] == 'orchestral')
     assert 'choir' in orchestral['instruments']['red']
     assert 'saxophone' in orchestral['instruments']['green']
     assert 'violin' in orchestral['instruments']['blue']
+    heavenly = next(item for item in catalog['templates'] if item['id'] == 'heavenly')
+    assert 'choir' in heavenly['instruments']['red']
+    assert 'string' in heavenly['instruments']['green']
+    assert 'chime' in heavenly['instruments']['blue']
     for path in ('/analyze', '/sonify'):
         assert client.post(f'{path}?sound_template=unknown').status_code == 422
 
@@ -343,7 +371,7 @@ def test_all_templates_render_distinct_continuous_audio():
     buffer = io.BytesIO()
     Image.fromarray(image).save(buffer, format='PNG')
     sounds = []
-    for template in ('original', 'orchestral', 'medieval', 'modern'):
+    for template in ('original', 'orchestral', 'medieval', 'modern', 'heavenly'):
         response = client.post(f'/sonify?duration_seconds=2&scan_mode=linear&sound_template={template}',
                                files={'file': ('map.png', buffer.getvalue(), 'image/png')})
         assert response.headers['x-sound-template'] == template
@@ -354,7 +382,7 @@ def test_all_templates_render_distinct_continuous_audio():
         analysis = client.post(f'/analyze?duration_seconds=2&sound_template={template}',
                                files={'file': ('map.png', buffer.getvalue(), 'image/png')}).json()
         assert analysis['soundTemplate'] == template
-    assert len(set(sounds)) == 4
+    assert len(set(sounds)) == 5
     assert len({len(sound) for sound in sounds}) == 1
 
 
@@ -368,6 +396,6 @@ def test_original_remains_default_template():
 def test_demo_exposes_template_selector_and_sends_choice():
     html = client.get('/demo').text
     assert 'id="sound-template"' in html
-    for template in ('original', 'orchestral', 'medieval', 'modern'):
+    for template in ('original', 'orchestral', 'medieval', 'modern', 'heavenly'):
         assert f'value="{template}"' in html
     assert 'sound_template=${soundTemplate.value}' in html

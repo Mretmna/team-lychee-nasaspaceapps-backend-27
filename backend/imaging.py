@@ -98,6 +98,25 @@ def radial_grid(rgb):
     return result
 
 
+
+def circle_grid(rgb, inward=False):
+    """Sample concentric rings inside the image, one ring per scan position."""
+    height, width = rgb.shape[:2]
+    cx, cy = (width - 1) / 2, (height - 1) / 2
+    outer_radius = min(cx, cy)
+    result = np.empty((ROWS, COLUMNS, 3), dtype=np.float64)
+    for column in range(COLUMNS):
+        step = COLUMNS - column - .5 if inward else column + .5
+        radius = outer_radius * step / COLUMNS
+        for row in range(ROWS):
+            angles = 2 * np.pi * (row + np.array([1 / 6, 1 / 2, 5 / 6])) / ROWS
+            xs = (cx + radius * np.sin(angles)).astype(np.float32)[None, :]
+            ys = (cy - radius * np.cos(angles)).astype(np.float32)[None, :]
+            sampled = cv2.remap(rgb, xs, ys, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+            result[row, column] = sampled.mean(axis=1)[0]
+    return result
+
+
 def image_events(rgb, duration, scan_mode='clockwise'):
     if scan_mode == 'linear':
         events, metadata = grid_events(cv2.resize(rgb, (COLUMNS, ROWS), interpolation=cv2.INTER_AREA), duration)
@@ -105,8 +124,18 @@ def image_events(rgb, duration, scan_mode='clockwise'):
                         scanDirection='left-to-right', scanPositions=COLUMNS,
                         verticalBands=ROWS)
         return events, metadata
+    if scan_mode in ('circle_outward', 'circle_inward'):
+        inward = scan_mode == 'circle_inward'
+        events, metadata = grid_events(circle_grid(rgb, inward), duration)
+        metadata.update(scanMode=scan_mode,
+                        scan='contracting circle from outer diameter to center' if inward else 'expanding circle from center to outer diameter',
+                        scanPositions=COLUMNS, angularBands=ROWS,
+                        pivotNormalized=[.5, .5], outerRadiusNormalized='half the shorter image side',
+                        radialDirection='edge-to-center' if inward else 'center-to-edge',
+                        pitch='Pitch varies by angular sector around the ring; the scan radius determines time.')
+        return events, metadata
     if scan_mode != 'clockwise':
-        raise ValueError('scan_mode must be clockwise or linear')
+        raise ValueError('scan_mode must be clockwise, linear, circle_outward, or circle_inward')
     events, metadata = grid_events(radial_grid(rgb), duration)
     metadata.update(scanMode='clockwise', scan='clockwise ray from center to image edge',
                     startAngleDegrees=0, angularDirection='clockwise',

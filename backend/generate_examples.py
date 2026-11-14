@@ -34,7 +34,7 @@ def main():
         grid[6, :] = color
         events, _ = image_events(grid, 3)
         (destination / f'{name}.wav').write_bytes(render_audio(events, 3))
-    print('Generated four NASA template examples and three equal-brightness color demonstrations.')
+    print('Generated five NASA template examples and three equal-brightness color demonstrations.')
 
 
 if __name__ == '__main__':

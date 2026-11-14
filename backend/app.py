@@ -56,8 +56,8 @@ app.add_middleware(CORSMiddleware,
     expose_headers=['X-Source-Id', 'X-Source-Url', 'X-Image-SHA256', 'X-Audio-Duration', 'X-Sample-Rate', 'X-Audio-Normalization', 'X-Event-Count', 'X-Mapping-Version', 'X-Scan-Mode', 'X-Sound-Template', 'Content-Disposition'])
 
 Duration = Annotated[float, Query(ge=2, le=30, allow_inf_nan=False, description='Playback scan duration, not observation time.')]
-ScanMode = Literal['clockwise', 'linear']
-SoundTemplate = Literal['original', 'orchestral', 'medieval', 'modern']
+ScanMode = Literal['clockwise', 'linear', 'circle_outward', 'circle_inward']
+SoundTemplate = Literal['original', 'orchestral', 'medieval', 'modern', 'heavenly']
 
 
 @app.get('/health')

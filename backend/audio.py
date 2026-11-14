@@ -64,6 +64,16 @@ SOUND_TEMPLATES = {
             'blue': {'instrument': 'glassy lead', 'octave': 1, 'partials': [(1., .45), (2.5, .3), (4.2, .25)], 'attack': .03, 'sustain': 1.},
         },
     },
+    'heavenly': {
+        'label': 'Heavenly',
+        'description': 'Warm angelic choir, floating strings, and crystal chimes with a soft echo.',
+        'voices': {
+            'neutral': {'instrument': 'halo choir', 'octave': 0, 'partials': [(1., .6), (1.004, .25), (2., .15)], 'attack': .22, 'sustain': 1.},
+            'red': {'instrument': 'angelic choir', 'octave': 0, 'partials': [(1., .55), (1.5, .25), (2., .2)], 'attack': .18, 'sustain': 1.},
+            'green': {'instrument': 'floating string pad', 'octave': 1, 'partials': [(1., .55), (1.003, .25), (2., .2)], 'attack': .16, 'sustain': 1.},
+            'blue': {'instrument': 'crystal chimes', 'octave': 1, 'partials': [(1., .5), (2.01, .3), (3.95, .2)], 'attack': .045, 'sustain': 1.},
+        },
+    },
 }
 
 
@@ -114,6 +124,15 @@ def render_audio(events, duration, normalize=True, template='original'):
         samples += np.asarray(sonification.out_channels['0'].values, dtype=np.float64)
     if not np.isfinite(samples).all():
         raise RuntimeError('STRAUSS produced nonfinite audio')
+    if template == 'heavenly':
+        # Three quiet delays broaden the sustained voices without using samples
+        # or changing the scan timing. The weights sum below one.
+        dry = samples
+        samples = dry * .7
+        for seconds, level in ((.17, .14), (.34, .09), (.53, .05)):
+            offset = round(seconds * SAMPLE_RATE)
+            if offset < len(samples):
+                samples[offset:] += dry[:-offset] * level
     # Fixed gain preserves brightness comparisons and keeps black images silent.
     samples = samples * .7
     if np.max(np.abs(samples), initial=0) > 1:

@@ -2,41 +2,42 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Clockwise map sonification</title>
+<title>Map sonification</title>
 <style>
 body{font:16px system-ui,sans-serif;max-width:920px;margin:2rem auto;padding:0 1rem;background:#0e1723;color:#f4f7fb}
-button,input,audio{font:inherit}button{padding:.6rem 1rem;cursor:pointer}label{display:block;margin:1rem 0}
+button,input,select,audio{font:inherit}button{padding:.6rem 1rem;cursor:pointer}label{display:block;margin:1rem 0}
 .stage{position:relative;line-height:0;margin:1rem 0;border:1px solid #6d849e}
 .stage img{display:block;width:100%;height:auto}.stage svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-#scan-line{stroke:#fff;stroke-width:4;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 4px #000)}
+#scan-line,#scan-circle{stroke:#fff;stroke-width:4;fill:none;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 4px #000)}
 #pivot{fill:#fff;stroke:#000;stroke-width:2;vector-effect:non-scaling-stroke}
 audio{display:block;width:100%}#status{min-height:1.5rem}
 </style>
 </head>
 <body>
 <h1>Map sonification</h1>
-<p>Select a still map, or leave the file empty for the NASA example. Choose a scan path. The white line shows where the sound comes from.</p>
+<p>Select a still map, or leave the file empty for the NASA example. Choose a scan path. The white marker follows the selected scan through the image.</p>
 <label>Map image <input id="file" type="file" accept=".png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,image/png,image/jpeg,image/webp,image/bmp,image/tiff"></label>
 <label>Duration <input id="duration" type="number" min="2" max="30" step="1" value="12"> seconds</label>
-<label>Scan path <select id="scan-mode"><option value="clockwise">Clockwise from center</option><option value="linear">Left to right</option></select></label>
-<label>Sound template <select id="sound-template"><option value="original">Original colors</option><option value="orchestral">Choir · Saxophone · Violin</option><option value="medieval">Medieval</option><option value="modern">Modern</option></select></label>
+<label>Scan path <select id="scan-mode"><option value="clockwise">Clockwise from center</option><option value="linear">Left to right</option><option value="circle_outward">Circle expanding from center</option><option value="circle_inward">Circle contracting to center</option></select></label>
+<label>Sound template <select id="sound-template"><option value="original">Original colors</option><option value="orchestral">Choir · Saxophone · Violin</option><option value="medieval">Medieval</option><option value="modern">Modern</option><option value="heavenly">Heavenly</option></select></label>
 <p id="template-description">The original rounded red bass, soft green tone, and blue bell.</p>
 <button id="generate" type="button">Generate sound</button>
-<div class="stage"><img id="map" src="/sources/nasa-ocean/image" alt="NASA ocean map or selected upload"><svg id="overlay" aria-hidden="true"><line id="scan-line"/><circle id="pivot" r="5"/></svg></div>
+<div class="stage"><img id="map" src="/sources/nasa-ocean/image" alt="NASA ocean map or selected upload"><svg id="overlay" aria-hidden="true"><line id="scan-line"/><circle id="scan-circle"/><circle id="pivot" r="5"/></svg></div>
 <audio id="player" controls preload="auto"></audio>
-<p id="status" role="status">Ready. The scan starts at 12 o’clock and rotates clockwise.</p>
+<p id="status" role="status">Ready. Choose a scan path and generate sound.</p>
 <script>
 const file=document.getElementById('file');
 const map=document.getElementById('map');
 const player=document.getElementById('player');
 const overlay=document.getElementById('overlay');
 const line=document.getElementById('scan-line');
+const circle=document.getElementById('scan-circle');
 const pivot=document.getElementById('pivot');
 const status=document.getElementById('status');
 const scanMode=document.getElementById('scan-mode');
 const soundTemplate=document.getElementById('sound-template');
 const templateDescription=document.getElementById('template-description');
-const descriptions={original:'The original rounded red bass, soft green tone, and blue bell.',orchestral:'Red: synthesized choir · Green: synthesized saxophone · Blue: synthesized violin.',medieval:'Red: low horn · Green: lute · Blue: reed (synthesized).',modern:'Red: synth bass · Green: electric pad · Blue: glassy lead.'};
+const descriptions={original:'The original rounded red bass, soft green tone, and blue bell.',orchestral:'Red: synthesized choir · Green: synthesized saxophone · Blue: synthesized violin.',medieval:'Red: low horn · Green: lute · Blue: reed (synthesized).',modern:'Red: synth bass · Green: electric pad · Blue: glassy lead.',heavenly:'Red: angelic choir · Green: floating strings · Blue: crystal chimes · Neutral: halo choir. A soft echo surrounds the sound.'};
 let imageURL=null,audioURL=null,generation=0;
 function endpoint(angle){
   const w=map.naturalWidth,h=map.naturalHeight,cx=(w-1)/2,cy=(h-1)/2;
@@ -54,16 +55,25 @@ function draw(){
     const fraction=player.duration>0 && Number.isFinite(player.duration)
       ? Math.min(player.currentTime/player.duration,1):0;
     overlay.setAttribute('viewBox',`0 0 ${map.naturalWidth} ${map.naturalHeight}`);
+    line.style.display=scanMode.value==='circle_outward'||scanMode.value==='circle_inward'?'none':'';
+    circle.style.display=scanMode.value==='circle_outward'||scanMode.value==='circle_inward'?'':'none';
     if(scanMode.value==='clockwise'){
       const point=endpoint(2*Math.PI*fraction);
       line.setAttribute('x1',point.cx);line.setAttribute('y1',point.cy);
       line.setAttribute('x2',point.x);line.setAttribute('y2',point.y);
       pivot.setAttribute('cx',point.cx);pivot.setAttribute('cy',point.cy);
       pivot.style.display='';
-    }else{
+    }else if(scanMode.value==='linear'){
       const x=(map.naturalWidth-1)*fraction;
       line.setAttribute('x1',x);line.setAttribute('y1',0);
       line.setAttribute('x2',x);line.setAttribute('y2',map.naturalHeight-1);
+      pivot.style.display='none';
+    }else{
+      const outerRadius=Math.min(map.naturalWidth-1,map.naturalHeight-1)/2;
+      const radius=outerRadius*(scanMode.value==='circle_inward'?1-fraction:fraction);
+      circle.setAttribute('cx',(map.naturalWidth-1)/2);
+      circle.setAttribute('cy',(map.naturalHeight-1)/2);
+      circle.setAttribute('r',Math.max(0,radius));
       pivot.style.display='none';
     }
   }
@@ -75,7 +85,7 @@ function clearAudio(){
   player.pause();player.removeAttribute('src');player.load();
   if(audioURL){URL.revokeObjectURL(audioURL);audioURL=null;}
 }
-scanMode.addEventListener('change',()=>{clearAudio();status.textContent='Scan path changed. Generate a new sound to match the line.';});
+scanMode.addEventListener('change',()=>{clearAudio();status.textContent='Scan path changed. Generate a new sound to match the marker.';});
 soundTemplate.addEventListener('change',()=>{clearAudio();templateDescription.textContent=descriptions[soundTemplate.value];status.textContent='Sound template changed. Generate a new sound to hear it.';});
 file.addEventListener('change',()=>{
   clearAudio();
@@ -98,7 +108,7 @@ document.getElementById('generate').addEventListener('click',async()=>{
     if(!blob.size||blob.type!=='audio/wav')throw new Error('The server did not return a playable WAV.');
     if(audioURL)URL.revokeObjectURL(audioURL);
     audioURL=URL.createObjectURL(blob);player.src=audioURL;player.load();
-    status.textContent=`Sound ready (${Math.round(blob.size/1024)} KiB). Press Play; the line follows the audio.`;
+    status.textContent=`Sound ready (${Math.round(blob.size/1024)} KiB). Press Play; the scan marker follows the audio.`;
   }catch(error){if(requestGeneration===generation)status.textContent=`Could not generate sound: ${error.message}`;}
 });
 </script>
