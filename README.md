@@ -37,4 +37,4 @@ Import this repository into Vercel and keep the detected Next.js defaults. The v
 
 ## Image uploads and STRAUSS backend
 
-A separate FastAPI service now accepts still raster maps and returns STRAUSS-generated WAV audio. With no upload it uses a bundled NASA ocean map. Try its rotating-line demo at `http://127.0.0.1:8000/demo` after starting the API. See [backend setup and API contract](backend/README.md). The frontend upload interface and integration are intentionally left to the frontend workstream. This image workflow requires a Python service; the original video/Web Audio workflow remains available without it.
+A separate FastAPI service accepts still raster maps and returns STRAUSS-generated WAV audio. With no upload it uses a bundled NASA ocean map. Run it on port 8001 alongside the map API on port 8000; try its rotating-line demo at `http://127.0.0.1:8001/demo`. See [backend setup and API contract](backend/README.md). The Next.js upload interface sends the selected PNG to this service's `/sonify` endpoint. The original video/Web Audio workflow remains available without it.

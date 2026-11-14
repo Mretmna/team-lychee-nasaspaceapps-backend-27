@@ -51,7 +51,7 @@ app = FastAPI(title='Earth Jukebox Image Sonification', version='1.0.0',
               description='Upload a still raster map or omit the file for NASA imagery. Audio is rendered server-side by STRAUSS, not streamed live.')
 app.add_middleware(BodyLimit)
 app.add_middleware(CORSMiddleware,
-    allow_origins=[x.strip() for x in os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000').split(',') if x.strip()],
+    allow_origins=[x.strip() for x in os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000,http://192.168.1.82:3000').split(',') if x.strip()],
     allow_methods=['GET', 'POST'], allow_headers=['Content-Type'],
     expose_headers=['X-Source-Id', 'X-Source-Url', 'X-Image-SHA256', 'X-Audio-Duration', 'X-Sample-Rate', 'X-Audio-Normalization', 'X-Event-Count', 'X-Mapping-Version', 'X-Scan-Mode', 'X-Sound-Template', 'Content-Disposition'])
 

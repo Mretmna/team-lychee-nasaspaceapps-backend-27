@@ -9,10 +9,10 @@ From the repository root, with Python 3.11–3.14 (tested on Python 3.14, macOS 
 ```sh
 python3 -m venv .venv-api
 .venv-api/bin/python -m pip install -r requirements-api.txt
-.venv-api/bin/python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
+.venv-api/bin/python -m uvicorn backend.app:app --host 127.0.0.1 --port 8001
 ```
 
-Open http://127.0.0.1:8000/demo to upload an image, generate sound, and watch the rotating scan line. The API explorer is at http://127.0.0.1:8000/docs. STRAUSS dependencies include scientific and notebook packages, so the first install is substantially larger than FastAPI alone. No sound device, external model, API key, or FFmpeg executable is needed to render these WAVs.
+Open http://127.0.0.1:8001/demo to upload an image, generate sound, and watch the rotating scan line. The API explorer is at http://127.0.0.1:8001/docs. Next.js connects to this service through `NEXT_PUBLIC_SONIFY_API_URL` (default `http://localhost:8001`), while map selection remains on port 8000. STRAUSS dependencies include scientific and notebook packages, so the first install is substantially larger than FastAPI alone. No sound device, external model, API key, or FFmpeg executable is needed to render these WAVs.
 
 ## Frontend contract
 
