@@ -1,0 +1,15 @@
+.venv-data/
+.cache-data/
+__pycache__/
+*.pyc
+node_modules
+.next
+out
+coverage
+*.log
+*.tsbuildinfo
+.DS_Store
+.vercel
+
+.venv-api/
+.pytest_cache/

@@ -1,0 +1,63 @@
+{
+  "durationSeconds": 12.0,
+  "sampleRate": 22050,
+  "channels": 1,
+  "bytes": 529244,
+  "peakAbsolutePcm": 26214,
+  "rmsPcm": 6594.655540991876,
+  "sourceImageSha256": "dcfd17864c2940f9ce1cf406e866818379991d57b0e900f9b8812f0c7cf72e3c",
+  "mapping": {
+    "scan": "clockwise ray from center to image edge",
+    "rows": 12,
+    "columns": 48,
+    "durationSeconds": 12,
+    "secondsPerScanPosition": 0.25,
+    "mappingVersion": "color-voices-v1",
+    "pitch": "Higher pitch near the center, lower pitch toward the edge; red uses one octave below the base scale, blue one octave above.",
+    "hue": "HSV hue blends red (0 degrees), green (120 degrees), and blue (240 degrees) instruments around the hue circle.",
+    "instruments": {
+      "red": "rounded bass",
+      "green": "soft midrange",
+      "blue": "bell-like",
+      "neutral": "soft neutral sine for grayscale"
+    },
+    "saturation": "Colored layer strength equals HSV saturation; the neutral layer gets 1 minus saturation.",
+    "voiceEventCounts": {
+      "neutral": 574,
+      "red": 261,
+      "green": 433,
+      "blue": 198
+    },
+    "notesLowToHigh": [
+      "C3",
+      "D3",
+      "E3",
+      "G3",
+      "A3",
+      "C4",
+      "D4",
+      "E4",
+      "G4",
+      "A4",
+      "C5",
+      "D5"
+    ],
+    "volume": "Brightness = 0.2126 R + 0.7152 G + 0.0722 B; each voice volume = brightness times layer strength divided by 12.",
+    "normalization": "Fixed feature bounds; no per-image contrast stretching. Audio playback is peak-normalized by default; use normalize=false for fixed gain.",
+    "alpha": "Composited onto black; fully transparent pixels are silent.",
+    "scope": "Entire image including any labels, legends, land, and borders; no automatic map segmentation.",
+    "meaning": "Sonification of rendered pixels, not measured Earth-science quantities. Scan time is not observation time. STRAUSS Objects sustain each row tone while its volume interpolates between columns.",
+    "eventCount": 1466,
+    "scanMode": "clockwise",
+    "startAngleDegrees": 0,
+    "angularDirection": "clockwise",
+    "angleDegreesPerSample": 7.5,
+    "pivotNormalized": [
+      0.5,
+      0.5
+    ],
+    "radialBands": 12,
+    "radialDirection": "center-to-edge"
+  },
+  "normalization": "peak-0.8"
+}

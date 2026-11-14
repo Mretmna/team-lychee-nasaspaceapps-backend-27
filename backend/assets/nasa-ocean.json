@@ -1,0 +1,11 @@
+{
+  "id": "nasa-ocean",
+  "title": "Global Sea Surface Currents and Temperature",
+  "sourceUrl": "https://svs.gsfc.nasa.gov/3912/",
+  "downloadUrl": "https://svs.gsfc.nasa.gov/vis/a000000/a003900/a003912/flat_global_ecco2_2028x1024.25000.jpg",
+  "credits": "NASA/Goddard Space Flight Center Scientific Visualization Studio",
+  "sha256": "dcfd17864c2940f9ce1cf406e866818379991d57b0e900f9b8812f0c7cf72e3c",
+  "retrievedOn": "2026-11-14",
+  "imageUrl": "/sources/nasa-ocean/image",
+  "resourceVerification": "NASA source verified directly; challenge resources link discovered through HackAthlone reproduction because official resource page was inaccessible."
+}

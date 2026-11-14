@@ -1,0 +1,150 @@
+"""FastAPI service for user-provided raster maps and a bundled NASA fallback."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import threading
+from typing import Annotated, Literal
+
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
+
+from .imaging import ImageError, MAX_BYTES, decode_image, image_events
+from .audio import SAMPLE_RATE, render_audio, template_catalog, SOUND_TEMPLATES
+
+ASSETS = Path(__file__).parent / 'assets'
+SOURCE = json.loads((ASSETS / 'nasa-ocean.json').read_text())
+render_lock = threading.Lock()
+
+
+class BodyLimit:
+    """Bound total multipart bytes before the multipart parser buffers files."""
+    def __init__(self, app, limit=MAX_BYTES + 1024 * 1024):
+        self.app, self.limit = app, limit
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] != 'http' or scope['method'] != 'POST':
+            return await self.app(scope, receive, send)
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message['type'] == 'http.disconnect':
+                return
+            body.extend(message.get('body', b''))
+            if len(body) > self.limit:
+                return await JSONResponse({'detail': 'Request exceeds the 11 MiB multipart limit.'}, status_code=413)(scope, receive, send)
+            if not message.get('more_body', False):
+                break
+        delivered = False
+        async def replay():
+            nonlocal delivered
+            if not delivered:
+                delivered = True
+                return {'type': 'http.request', 'body': bytes(body), 'more_body': False}
+            return await receive()
+        await self.app(scope, replay, send)
+
+
+app = FastAPI(title='Earth Jukebox Image Sonification', version='1.0.0',
+              description='Upload a still raster map or omit the file for NASA imagery. Audio is rendered server-side by STRAUSS, not streamed live.')
+app.add_middleware(BodyLimit)
+app.add_middleware(CORSMiddleware,
+    allow_origins=[x.strip() for x in os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000').split(',') if x.strip()],
+    allow_methods=['GET', 'POST'], allow_headers=['Content-Type'],
+    expose_headers=['X-Source-Id', 'X-Source-Url', 'X-Image-SHA256', 'X-Audio-Duration', 'X-Sample-Rate', 'X-Audio-Normalization', 'X-Event-Count', 'X-Mapping-Version', 'X-Scan-Mode', 'X-Sound-Template', 'Content-Disposition'])
+
+Duration = Annotated[float, Query(ge=2, le=30, allow_inf_nan=False, description='Playback scan duration, not observation time.')]
+ScanMode = Literal['clockwise', 'linear']
+SoundTemplate = Literal['original', 'orchestral', 'medieval', 'modern']
+
+
+@app.get('/health')
+def health():
+    return {'status': 'ok', 'engine': 'STRAUSS', 'version': '1.0.3'}
+
+
+@app.get('/demo', include_in_schema=False)
+def demo():
+    return FileResponse(Path(__file__).parent / 'demo.html', media_type='text/html')
+
+
+@app.get('/templates')
+def templates():
+    return {'defaultTemplate': 'original', 'templates': template_catalog()}
+
+
+@app.get('/sources')
+def sources():
+    return {'defaultSourceId': SOURCE['id'], 'sources': [SOURCE]}
+
+
+@app.get('/sources/nasa-ocean/image')
+def source_image():
+    return FileResponse(ASSETS / 'nasa-ocean.jpg', media_type='image/jpeg')
+
+
+async def load_input(file):
+    if file is None:
+        try:
+            data = (ASSETS / 'nasa-ocean.jpg').read_bytes()
+        except OSError as exc:
+            raise HTTPException(503, 'Bundled NASA image is unavailable.') from exc
+        if hashlib.sha256(data).hexdigest() != SOURCE['sha256']:
+            raise HTTPException(503, 'Bundled NASA image failed its integrity check.')
+        source = SOURCE
+    else:
+        try:
+            data = await file.read(MAX_BYTES + 1)
+        finally:
+            await file.close()
+        source = {'id': 'user-upload', 'title': 'User-provided image', 'sourceUrl': None,
+                  'credits': 'User-provided; no NASA attribution inferred.'}
+    return data, source
+
+
+def process(data, source, duration, audio, normalize=True, scan_mode='clockwise', template='original'):
+    # Serialize expensive renders per worker and reject excess work instead of queuing.
+    if not render_lock.acquire(blocking=False):
+        raise HTTPException(503, 'Sonification worker is busy. Retry shortly.', headers={'Retry-After': '2'})
+    try:
+        rgb, fmt = decode_image(data)
+        events, mapping = image_events(rgb, duration, scan_mode)
+        if audio and not events:
+            raise HTTPException(422, 'No audible image features: the image is black, transparent, or too dark after resizing. Try a brighter image or crop to the map content.')
+        metadata = {'source': source, 'imageSha256': hashlib.sha256(data).hexdigest(),
+                    'image': {'width': rgb.shape[1], 'height': rgb.shape[0], 'format': fmt},
+                    'mapping': mapping, 'sampleRate': SAMPLE_RATE,
+                    'soundTemplate': template,
+                    'instruments': {voice: preset['instrument'] for voice, preset in SOUND_TEMPLATES[template]['voices'].items()}}
+        return (render_audio(events, duration, normalize, template), metadata) if audio else metadata
+    except ImageError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    finally:
+        render_lock.release()
+
+
+@app.post('/analyze')
+async def analyze(duration_seconds: Duration = 12, scan_mode: ScanMode = 'clockwise', sound_template: SoundTemplate = 'original', file: Annotated[UploadFile | None, File()] = None):
+    data, source = await load_input(file)
+    return await run_in_threadpool(process, data, source, duration_seconds, False, True, scan_mode, sound_template)
+
+
+@app.post('/sonify', response_class=Response, responses={200: {
+    'content': {'audio/wav': {'schema': {'type': 'string', 'format': 'binary'}}},
+    'description': 'Downloadable mono 16-bit PCM WAV'}})
+async def sonify(duration_seconds: Duration = 12, scan_mode: ScanMode = 'clockwise', sound_template: SoundTemplate = 'original', normalize: Annotated[bool, Query(description='Normalize playback peak to 80 percent; disable to compare absolute brightness between images.')] = True, file: Annotated[UploadFile | None, File()] = None):
+    data, source = await load_input(file)
+    audio, metadata = await run_in_threadpool(process, data, source, duration_seconds, True, normalize, scan_mode, sound_template)
+    return Response(audio, media_type='audio/wav', headers={
+        'Content-Disposition': 'attachment; filename="sonification.wav"',
+        'Cache-Control': 'no-store',
+        'X-Source-Id': source['id'], 'X-Source-Url': source['sourceUrl'] or '',
+        'X-Image-SHA256': metadata['imageSha256'], 'X-Audio-Duration': str(duration_seconds),
+        'X-Sample-Rate': str(SAMPLE_RATE),
+        'X-Audio-Normalization': 'peak-0.8' if normalize else 'fixed-gain',
+        'X-Mapping-Version': metadata['mapping']['mappingVersion'],
+        'X-Scan-Mode': metadata['mapping']['scanMode'],
+        'X-Sound-Template': sound_template,
+        'X-Event-Count': str(metadata['mapping']['eventCount'])})
