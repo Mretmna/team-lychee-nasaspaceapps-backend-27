@@ -10,6 +10,49 @@ from backend.imaging import decode_image, image_events, grid_events, radial_grid
 client = TestClient(app)
 
 
+def test_voice_selection_and_timeline():
+    buffer = io.BytesIO()
+    image = Image.new('RGB', (48, 24), (0, 0, 255))
+    image.paste((255, 0, 0), (0, 0, 24, 24))
+    image.save(buffer, format='PNG')
+    payload = {'file': ('map.png', buffer.getvalue(), 'image/png')}
+    query = '?duration_seconds=2&scan_mode=linear&voices=red&normalize=false'
+    samples = pcm(client.post('/sonify'+query, files=payload))
+    assert np.max(np.abs(samples[:18000])) > 100
+    assert np.max(np.abs(samples[30000:])) == 0
+    meta = client.post('/analyze'+query, files=payload).json()['mapping']
+    assert meta['enabledVoices'] == ['red']
+    assert len(meta['voiceTimeline']) == 49
+    assert meta['voiceTimeline'][0]['red'] > 0
+    assert meta['voiceTimeline'][40]['blue'] > 0
+    assert meta['voiceEventCounts']['blue'] == 0
+    assert not pcm(client.post('/sonify?duration_seconds=2&voices=', files=payload)).any()
+    assert client.post('/sonify?voices=purple', files=payload).status_code == 422
+
+
+@pytest.mark.parametrize('template', ['original', 'orchestral', 'medieval', 'modern', 'heavenly'])
+def test_legend_voices(template):
+    from backend.audio import render_audio
+    from backend.imaging import COLUMNS
+    outputs = []
+    for voice in ('red', 'green', 'blue', 'neutral'):
+        response = client.get(f'/legend/{voice}?sound_template={template}')
+        samples = pcm(response)
+        assert len(samples) == 44100
+        assert np.max(np.abs(samples)) > 1000
+        events = [{'voice': voice, 'row': 5, 'column': column, 'volume': 1 / 12} for column in range(COLUMNS)]
+        assert response.content == render_audio(events, 2, True, template)
+        outputs.append(response.content)
+    assert len(set(outputs)) == 4
+
+
+def test_legend_validation_and_busy():
+    assert client.get('/legend/purple').status_code == 422
+    assert client.get('/legend/red?sound_template=unknown').status_code == 422
+    with render_lock:
+        assert client.get('/legend/red').status_code == 503
+
+
 def picture(value=180, fmt='PNG', mode='RGB'):
     buf = io.BytesIO()
     Image.new(mode, (48, 24), value if mode == 'L' else (value,) * len(mode)).save(buf, format=fmt)
@@ -398,4 +441,4 @@ def test_demo_exposes_template_selector_and_sends_choice():
     assert 'id="sound-template"' in html
     for template in ('original', 'orchestral', 'medieval', 'modern', 'heavenly'):
         assert f'value="{template}"' in html
-    assert 'sound_template=${soundTemplate.value}' in html
+    assert 'sound_template:soundTemplate.value' in html

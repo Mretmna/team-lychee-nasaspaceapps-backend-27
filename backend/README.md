@@ -114,3 +114,28 @@ The image scan, hue/saturation/brightness rules, and sample rate stay the same; 
 The supplied [YouTube reference](https://www.youtube.com/watch?v=ULNMBnooyeQ&t=43s) could not be retrieved by the available web tool, so its audio was not used or copied. The named instrument assignments above follow the user's explicit instructions.
 
 The `backend/examples/nasa-*.wav` files demonstrate all five templates on the same NASA image. Regenerate with `.venv-api/bin/python -m backend.generate_examples`. Equal-duration WAVs have equal sizes even when the sound differs.
+
+## Interactive audio legend
+
+The demo also offers map-voice checkboxes and a compact playback explanation.
+Both `/analyze` and `/sonify` accept `voices=red,blue` (default: all four voices).
+Use `voices=` for silence. Missing selected colors also produce silence while
+the scan continues. Hue blending still applies, so yellow can contribute to red
+and green. Changing selections requires regeneration. Preview buttons are independent.
+`mapping.voiceTimeline` contains 49 brightness-weighted voice levels (48 scan
+positions plus the held endpoint); interpolate at playback fraction × 48.
+`mapping.enabledVoices` identifies enabled voices. These levels precede audio
+normalization and instrument envelopes/echoes, and are not acoustic loudness.
+
+In `/demo`, use **Hear red**, **Hear green**, **Hear blue**, or **Hear gray / neutral**
+to preview an isolated voice in the selected template. Each preview lasts two
+seconds. The preview template selector defaults to following the map template;
+you can also audition any template independently without changing map settings.
+Each preview uses the same STRAUSS renderer as map audio, at a fixed middle scan
+band. Peak-normalized previews teach timbre, not absolute image brightness.
+Preview playback pauses map playback and vice versa. Changing templates clears
+the previous preview. The map audio and scan marker remain separate.
+
+Frontends can request `GET /legend/red?sound_template=orchestral` (or green,
+blue, neutral and any supported template). The response is an in-memory mono
+16-bit WAV; no preview files are saved on the server.

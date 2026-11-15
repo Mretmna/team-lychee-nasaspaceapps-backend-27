@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from .imaging import ImageError, MAX_BYTES, decode_image, image_events
+from .imaging import ImageError, MAX_BYTES, COLUMNS, decode_image, image_events
 from .audio import SAMPLE_RATE, render_audio, template_catalog, SOUND_TEMPLATES
 
 ASSETS = Path(__file__).parent / 'assets'
@@ -58,6 +58,7 @@ app.add_middleware(CORSMiddleware,
 Duration = Annotated[float, Query(ge=2, le=30, allow_inf_nan=False, description='Playback scan duration, not observation time.')]
 ScanMode = Literal['clockwise', 'linear', 'circle_outward', 'circle_inward']
 SoundTemplate = Literal['original', 'orchestral', 'medieval', 'modern', 'heavenly']
+Voices = Annotated[str, Query(pattern=r'^(?:(?:red|green|blue|neutral)(?:,(?:red|green|blue|neutral))*)?$', description='Comma-separated enabled voices; empty means silence.')]
 
 
 @app.get('/health')
@@ -78,6 +79,21 @@ def templates():
 @app.get('/sources')
 def sources():
     return {'defaultSourceId': SOURCE['id'], 'sources': [SOURCE]}
+
+
+@app.get('/legend/{voice}', response_class=Response,
+         responses={200: {'content': {'audio/wav': {}}, 'description': 'Two-second isolated instrument preview'}})
+def legend(voice: Literal['red', 'green', 'blue', 'neutral'], sound_template: SoundTemplate = 'original'):
+    if not render_lock.acquire(blocking=False):
+        raise HTTPException(503, 'Sonification worker is busy. Retry shortly.', headers={'Retry-After': '2'})
+    try:
+        # A fixed middle band isolates timbre while retaining template octaves.
+        events = [{'voice': voice, 'row': 5, 'column': column, 'volume': 1 / 12}
+                  for column in range(COLUMNS)]
+        audio = render_audio(events, 2, True, sound_template)
+        return Response(audio, media_type='audio/wav', headers={'Cache-Control': 'no-store'})
+    finally:
+        render_lock.release()
 
 
 @app.get('/sources/nasa-ocean/image')
@@ -104,7 +120,7 @@ async def load_input(file):
     return data, source
 
 
-def process(data, source, duration, audio, normalize=True, scan_mode='clockwise', template='original'):
+def process(data, source, duration, audio, normalize=True, scan_mode='clockwise', template='original', voices='red,green,blue,neutral'):
     # Serialize expensive renders per worker and reject excess work instead of queuing.
     if not render_lock.acquire(blocking=False):
         raise HTTPException(503, 'Sonification worker is busy. Retry shortly.', headers={'Retry-After': '2'})
@@ -113,6 +129,15 @@ def process(data, source, duration, audio, normalize=True, scan_mode='clockwise'
         events, mapping = image_events(rgb, duration, scan_mode)
         if audio and not events:
             raise HTTPException(422, 'No audible image features: the image is black, transparent, or too dark after resizing. Try a brighter image or crop to the map content.')
+        enabled = set(voices.split(',')) - {''}
+        timeline = [{voice: 0. for voice in ('red', 'green', 'blue', 'neutral')} for _ in range(COLUMNS)]
+        for event in events:
+            timeline[event['column']][event['voice']] += event['volume']
+        mapping['voiceTimeline'] = timeline + [timeline[-1].copy()]
+        mapping['enabledVoices'] = sorted(enabled)
+        events = [event for event in events if event['voice'] in enabled]
+        mapping['eventCount'] = len(events)
+        mapping['voiceEventCounts'] = {voice: sum(event['voice'] == voice for event in events) for voice in timeline[0]}
         metadata = {'source': source, 'imageSha256': hashlib.sha256(data).hexdigest(),
                     'image': {'width': rgb.shape[1], 'height': rgb.shape[0], 'format': fmt},
                     'mapping': mapping, 'sampleRate': SAMPLE_RATE,
@@ -126,17 +151,17 @@ def process(data, source, duration, audio, normalize=True, scan_mode='clockwise'
 
 
 @app.post('/analyze')
-async def analyze(duration_seconds: Duration = 12, scan_mode: ScanMode = 'clockwise', sound_template: SoundTemplate = 'original', file: Annotated[UploadFile | None, File()] = None):
+async def analyze(duration_seconds: Duration = 12, scan_mode: ScanMode = 'clockwise', sound_template: SoundTemplate = 'original', file: Annotated[UploadFile | None, File()] = None, voices: Voices = 'red,green,blue,neutral'):
     data, source = await load_input(file)
-    return await run_in_threadpool(process, data, source, duration_seconds, False, True, scan_mode, sound_template)
+    return await run_in_threadpool(process, data, source, duration_seconds, False, True, scan_mode, sound_template, voices)
 
 
 @app.post('/sonify', response_class=Response, responses={200: {
     'content': {'audio/wav': {'schema': {'type': 'string', 'format': 'binary'}}},
     'description': 'Downloadable mono 16-bit PCM WAV'}})
-async def sonify(duration_seconds: Duration = 12, scan_mode: ScanMode = 'clockwise', sound_template: SoundTemplate = 'original', normalize: Annotated[bool, Query(description='Normalize playback peak to 80 percent; disable to compare absolute brightness between images.')] = True, file: Annotated[UploadFile | None, File()] = None):
+async def sonify(duration_seconds: Duration = 12, scan_mode: ScanMode = 'clockwise', sound_template: SoundTemplate = 'original', normalize: Annotated[bool, Query(description='Normalize playback peak to 80 percent; disable to compare absolute brightness between images.')] = True, file: Annotated[UploadFile | None, File()] = None, voices: Voices = 'red,green,blue,neutral'):
     data, source = await load_input(file)
-    audio, metadata = await run_in_threadpool(process, data, source, duration_seconds, True, normalize, scan_mode, sound_template)
+    audio, metadata = await run_in_threadpool(process, data, source, duration_seconds, True, normalize, scan_mode, sound_template, voices)
     return Response(audio, media_type='audio/wav', headers={
         'Content-Disposition': 'attachment; filename="sonification.wav"',
         'Cache-Control': 'no-store',

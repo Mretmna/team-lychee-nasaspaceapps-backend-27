@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Map sonification</title>
+<script>
+// API routes require the FastAPI origin, even when this file is double-clicked.
+if(location.protocol==='file:')location.replace('http://127.0.0.1:8000/demo');
+</script>
 <style>
 body{font:16px system-ui,sans-serif;max-width:920px;margin:2rem auto;padding:0 1rem;background:#0e1723;color:#f4f7fb}
 button,input,select,audio{font:inherit}button{padding:.6rem 1rem;cursor:pointer}label{display:block;margin:1rem 0}
@@ -11,6 +15,8 @@ button,input,select,audio{font:inherit}button{padding:.6rem 1rem;cursor:pointer}
 #scan-line,#scan-circle{stroke:#fff;stroke-width:4;fill:none;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 4px #000)}
 #pivot{fill:#fff;stroke:#000;stroke-width:2;vector-effect:non-scaling-stroke}
 audio{display:block;width:100%}#status{min-height:1.5rem}
+#voices label{display:inline-block;margin:.5rem 1rem .5rem 0}#voices small{display:block}
+#live-panel{padding:.7rem;margin:1rem 0;border:1px solid #6d849e;border-radius:8px;font-size:.85rem;color:#d5e5f5}
 </style>
 </head>
 <body>
@@ -21,7 +27,27 @@ audio{display:block;width:100%}#status{min-height:1.5rem}
 <label>Scan path <select id="scan-mode"><option value="clockwise">Clockwise from center</option><option value="linear">Left to right</option><option value="circle_outward">Circle expanding from center</option><option value="circle_inward">Circle contracting to center</option></select></label>
 <label>Sound template <select id="sound-template"><option value="original">Original colors</option><option value="orchestral">Choir · Saxophone · Violin</option><option value="medieval">Medieval</option><option value="modern">Modern</option><option value="heavenly">Heavenly</option></select></label>
 <p id="template-description">The original rounded red bass, soft green tone, and blue bell.</p>
+<fieldset id="legend">
+<legend>Listen to the color key</legend>
+<label>Preview template <select id="preview-template"><option value="">Use map template</option></select></label>
+<p>Try each sound before playing the map. These two-second examples use the preview template at a fixed middle scan band. Choosing a preview template does not change the map template. Real maps blend the voices and vary their pitch and loudness.</p>
+<button type="button" data-voice="red">Hear red</button>
+<button type="button" data-voice="green">Hear green</button>
+<button type="button" data-voice="blue">Hear blue</button>
+<button type="button" data-voice="neutral">Hear gray / neutral</button>
+<p id="legend-status" role="status">Choose a color to hear its instrument. Previews use equal peak loudness.</p>
+<audio id="legend-player" controls preload="none" aria-label="Color key preview"></audio>
+</fieldset>
 <button id="generate" type="button">Generate sound</button>
+<fieldset id="voices"><legend>Map voices</legend>
+<label><input type="checkbox" value="red" checked> Red</label>
+<label><input type="checkbox" value="green" checked> Green</label>
+<label><input type="checkbox" value="blue" checked> Blue</label>
+<label><input type="checkbox" value="neutral" checked> Gray / neutral</label>
+<small>Choose voices, then generate again. Mixed colors contribute to neighboring voices; unselected voices are silent.</small>
+</fieldset>
+<div id="live-panel" aria-label="Current scan contributions">Generate audio to see the scan's color contributions.</div>
+<small>Contributions are brightness-weighted image levels before playback normalization, not measured sound loudness. The Heavenly template can leave a short echo.</small>
 <div class="stage"><img id="map" src="/sources/nasa-ocean/image" alt="NASA ocean map or selected upload"><svg id="overlay" aria-hidden="true"><line id="scan-line"/><circle id="scan-circle"/><circle id="pivot" r="5"/></svg></div>
 <audio id="player" controls preload="auto"></audio>
 <p id="status" role="status">Ready. Choose a scan path and generate sound.</p>
@@ -37,8 +63,47 @@ const status=document.getElementById('status');
 const scanMode=document.getElementById('scan-mode');
 const soundTemplate=document.getElementById('sound-template');
 const templateDescription=document.getElementById('template-description');
+const legendPlayer=document.getElementById('legend-player');
+const legendStatus=document.getElementById('legend-status');
+const previewTemplate=document.getElementById('preview-template');
+for(const option of soundTemplate.options)previewTemplate.add(option.cloneNode(true));
+previewTemplate.value='';
+previewTemplate.addEventListener('change',()=>{stopLegend();legendStatus.textContent='Preview template changed. Choose a color to listen.';});
+let legendURL=null,legendRequest=0,legendAbort=null;
+function stopLegend(){
+  legendRequest++;
+  if(legendAbort)legendAbort.abort();
+  legendPlayer.pause();legendPlayer.removeAttribute('src');legendPlayer.load();
+  if(legendURL){URL.revokeObjectURL(legendURL);legendURL=null;}
+}
+soundTemplate.addEventListener('change',()=>{stopLegend();legendStatus.textContent='Template changed. Choose a color to hear the new instrument.';});
+player.addEventListener('play',()=>legendPlayer.pause());
+legendPlayer.addEventListener('play',()=>player.pause());
+document.getElementById('legend').addEventListener('click',async(event)=>{
+  const button=event.target.closest('button[data-voice]');
+  if(!button)return;
+  stopLegend();player.pause();
+  const request=legendRequest,voice=button.dataset.voice;
+  const template=previewTemplate.value||soundTemplate.value;
+  const templateLabel=Array.from(soundTemplate.options).find(option=>option.value===template).text;
+  legendAbort=new AbortController();
+  legendStatus.textContent=`Preparing ${voice} in ${templateLabel}…`;
+  try{
+    const response=await fetch(`/legend/${voice}?sound_template=${template}`,{signal:legendAbort.signal});
+    if(!response.ok){const error=await response.json();throw new Error(error.detail||'Preview failed');}
+    const blob=await response.blob();
+    if(request!==legendRequest)return;
+    legendURL=URL.createObjectURL(blob);legendPlayer.src=legendURL;
+    legendStatus.textContent=`${voice} · ${templateLabel} preview ready.`;
+    try{await legendPlayer.play();}catch{legendStatus.textContent='Preview ready. Press Play in the color-key player.';}
+  }catch(error){if(request===legendRequest&&error.name!=='AbortError')legendStatus.textContent=`Could not play preview: ${error.message}`;}
+});
 const descriptions={original:'The original rounded red bass, soft green tone, and blue bell.',orchestral:'Red: synthesized choir · Green: synthesized saxophone · Blue: synthesized violin.',medieval:'Red: low horn · Green: lute · Blue: reed (synthesized).',modern:'Red: synth bass · Green: electric pad · Blue: glassy lead.',heavenly:'Red: angelic choir · Green: floating strings · Blue: crystal chimes · Neutral: halo choir. A soft echo surrounds the sound.'};
 let imageURL=null,audioURL=null,generation=0;
+let analysis=null;
+const livePanel=document.getElementById('live-panel');
+const voiceControls=document.getElementById('voices');
+voiceControls.addEventListener('change',()=>{clearAudio();status.textContent='Voices changed. Generate again to apply.';});
 function endpoint(angle){
   const w=map.naturalWidth,h=map.naturalHeight,cx=(w-1)/2,cy=(h-1)/2;
   const dx=Math.sin(angle),dy=-Math.cos(angle);
@@ -55,6 +120,14 @@ function draw(){
     const fraction=player.duration>0 && Number.isFinite(player.duration)
       ? Math.min(player.currentTime/player.duration,1):0;
     overlay.setAttribute('viewBox',`0 0 ${map.naturalWidth} ${map.naturalHeight}`);
+    if(analysis){
+      const timeline=analysis.mapping.voiceTimeline;
+      const position=Math.min(fraction*(timeline.length-1),timeline.length-1);
+      const index=Math.floor(position),next=Math.min(index+1,timeline.length-1),blend=position-index;
+      const values=Object.fromEntries(Object.keys(timeline[index]).map(voice=>[voice,timeline[index][voice]*(1-blend)+timeline[next][voice]*blend]));
+      const brightness=Object.values(values).reduce((a,b)=>a+b,0);
+      livePanel.textContent=`Scan ${Math.round(fraction*100)}% · Brightness ${Math.round(brightness*100)}% · `+Object.entries(values).map(([voice,value])=>`${voice}: ${analysis.mapping.enabledVoices.includes(voice)?Math.round(value*100)+'% contribution':'muted'}`).join(' · ');
+    }
     line.style.display=scanMode.value==='circle_outward'||scanMode.value==='circle_inward'?'none':'';
     circle.style.display=scanMode.value==='circle_outward'||scanMode.value==='circle_inward'?'':'none';
     if(scanMode.value==='clockwise'){
@@ -81,6 +154,8 @@ function draw(){
 }
 requestAnimationFrame(draw);
 function clearAudio(){
+  analysis=null;livePanel.textContent='Generate audio to see the scan’s color contributions.';
+  stopLegend();
   generation++;
   player.pause();player.removeAttribute('src');player.load();
   if(audioURL){URL.revokeObjectURL(audioURL);audioURL=null;}
@@ -100,12 +175,18 @@ document.getElementById('generate').addEventListener('click',async()=>{
   clearAudio();const requestGeneration=generation;status.textContent='Generating sound…';
   const body=file.files.length?new FormData():undefined;
   if(body)body.append('file',file.files[0]);
+  const query=new URLSearchParams({duration_seconds:duration,scan_mode:scanMode.value,sound_template:soundTemplate.value,voices:Array.from(voiceControls.querySelectorAll('input:checked')).map(input=>input.value).join(',')});
   try{
-    const response=await fetch(`/sonify?duration_seconds=${duration}&scan_mode=${scanMode.value}&sound_template=${soundTemplate.value}`,{method:'POST',body});
+    const details=await fetch(`/analyze?${query}`,{method:'POST',body});
+    if(!details.ok)throw new Error('Could not analyze the map. Please retry.');
+    const metadata=await details.json();
+    if(requestGeneration!==generation)return;
+    const response=await fetch(`/sonify?${query}`,{method:'POST',body});
     if(!response.ok){const error=await response.json().catch(()=>({detail:`HTTP ${response.status}`}));throw new Error(error.detail||`HTTP ${response.status}`);}
     const blob=await response.blob();
     if(requestGeneration!==generation)return;
     if(!blob.size||blob.type!=='audio/wav')throw new Error('The server did not return a playable WAV.');
+    analysis=metadata;
     if(audioURL)URL.revokeObjectURL(audioURL);
     audioURL=URL.createObjectURL(blob);player.src=audioURL;player.load();
     status.textContent=`Sound ready (${Math.round(blob.size/1024)} KiB). Press Play; the scan marker follows the audio.`;
