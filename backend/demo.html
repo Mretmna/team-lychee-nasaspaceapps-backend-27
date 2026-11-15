@@ -30,7 +30,6 @@ audio{display:block;width:100%}#status{min-height:1.5rem}
 <label>Scan path <select id="scan-mode"><option value="clockwise">Clockwise from center</option><option value="linear">Left to right</option><option value="circle_outward">Circle expanding from center</option><option value="circle_inward">Circle contracting to center</option></select></label>
 <label>Sound template <select id="sound-template"><option value="original">Original colors</option><option value="orchestral">Choir · Saxophone · Violin</option><option value="medieval">Medieval</option><option value="modern">Modern</option><option value="heavenly">Heavenly</option></select></label>
 <p id="template-description">The original rounded red bass, soft green tone, and blue bell.</p>
-<<<<<<< HEAD
 <fieldset id="legend">
 <legend>Listen to the color key</legend>
 <label>Preview template <select id="preview-template"><option value="">Use map template</option></select></label>
@@ -43,10 +42,8 @@ audio{display:block;width:100%}#status{min-height:1.5rem}
 <p id="legend-error" class="error-message" role="alert"></p>
 <audio id="legend-player" controls preload="none" aria-label="Color key preview"></audio>
 </fieldset>
-=======
 <label><input id="spatial-audio" type="checkbox"> Spatial 3D sound (stereo headphones)</label>
 <label><input id="eight-d-audio" type="checkbox"> 8D headphone effect (moving sound and echo)</label>
->>>>>>> 761c7e0 (backend sonlanıyo)
 <button id="generate" type="button">Generate sound</button>
 <p id="generation-error" class="error-message" role="alert"></p>
 <fieldset id="voices"><legend>Map voices</legend>
@@ -277,9 +274,8 @@ generateButton.addEventListener('click',async()=>{
   const timeout=setTimeout(()=>controller.abort(),requestTimeout);
   const body=file.files.length?new FormData():undefined;
   if(body)body.append('file',file.files[0]);
-  const query=new URLSearchParams({duration_seconds:duration,scan_mode:scanMode.value,sound_template:soundTemplate.value,voices:Array.from(voiceControls.querySelectorAll('input:checked')).map(input=>input.value).join(',')});
+  const query=new URLSearchParams({duration_seconds:duration,scan_mode:scanMode.value,sound_template:soundTemplate.value,voices:Array.from(voiceControls.querySelectorAll('input:checked')).map(input=>input.value).join(','),spatial_audio:String(spatialAudio.checked),eight_d_audio:String(eightDAudio.checked)});
   try{
-<<<<<<< HEAD
     const options={method:'POST',body,signal:controller.signal};
     const details=await fetch(`/analyze?${query}`,options);
     await requireSuccess(details);
@@ -293,11 +289,6 @@ generateButton.addEventListener('click',async()=>{
        !voiceTimeline.every(frame=>voices.every(voice=>Number.isFinite(frame?.[voice])))){
       throw new Error('The server returned incomplete scan data. Try again.');
     }
-=======
-    const response=await fetch(`/sonify?duration_seconds=${duration}&scan_mode=${scanMode.value}&sound_template=${soundTemplate.value}&spatial_audio=${spatialAudio.checked}&eight_d_audio=${eightDAudio.checked}`,{method:'POST',body});
-    if(!response.ok){const error=await response.json().catch(()=>({detail:`HTTP ${response.status}`}));throw new Error(error.detail||`HTTP ${response.status}`);}
-    const blob=await response.blob();
->>>>>>> 761c7e0 (backend sonlanıyo)
     if(requestGeneration!==generation)return;
     const response=await fetch(`/sonify?${query}`,options);
     const blob=await readAudio(response);

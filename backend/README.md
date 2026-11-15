@@ -141,3 +141,5 @@ the previous preview. The map audio and scan marker remain separate.
 Frontends can request `GET /legend/red?sound_template=orchestral` (or green,
 blue, neutral and any supported template). The response is an in-memory mono
 16-bit WAV; no preview files are saved on the server.
+
+All four scan paths accept `region_shape=circle|square|full` on `/sonify` and `/analyze`. Outward and inward scans follow rectangular contours for square and full-map images so the entire image is represented.
