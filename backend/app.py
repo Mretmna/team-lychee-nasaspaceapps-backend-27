@@ -79,7 +79,7 @@ app.add_middleware(CORSMiddleware,
 Duration = Annotated[float, Query(ge=2, le=30, allow_inf_nan=False, description='Playback scan duration, not observation time.')]
 ScanMode = Literal['clockwise', 'linear', 'circle_outward', 'circle_inward']
 RegionShape = Literal['circle', 'square', 'full']
-SoundTemplate = Literal['original', 'orchestral', 'medieval', 'modern', 'heavenly']
+SoundTemplate = Literal['original', 'orchestral', 'medieval', 'modern', 'heavenly', 'cosmic_remnant']
 Voices = Annotated[str, Query(pattern=r'^(?:(?:red|green|blue|neutral)(?:,(?:red|green|blue|neutral))*)?$', description='Comma-separated enabled voices; empty means silence.')]
 
 

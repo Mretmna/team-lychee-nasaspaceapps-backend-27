@@ -111,11 +111,13 @@ The WAV response includes `X-Scan-Mode`, and `/analyze` returns `mapping.scanMod
 
 ## Sound templates
 
+`cosmic_remnant` takes inspiration from NASA's [Cassiopeia A sonification](https://chandra.si.edu/photo/2024/sonify9/). It adds a high synth, piano-like blue voice, string-like green voice, brass-like red voice, and small metallic accents for bright neutral features. An outward circle scan begins with a triangle-like center cue. These are synthesized interpretations of Earth-map RGB data, not Chandra, Webb, or Hubble measurements.
+
 The image scan, hue/saturation/brightness rules, and sample rate stay the same; `sound_template` changes the STRAUSS synthesis palette and, for Heavenly, adds a quiet echo. The default `original` profile preserves the previous bass/midrange/bell synthesis. `orchestral` assigns red to a choir-like tone, green to a saxophone-like tone, and blue to a violin-like tone. `medieval` uses low horn/lute/reed-like sounds. `modern` uses synth bass/electric pad/glassy lead. `heavenly` uses a warm angelic choir, floating string pad, and crystal chimes, with a quiet three-tap echo that softens the mix. All are **synthesized approximations**, not recordings or licensed instrument samples. Each remains a continuous sustained voice. Exact sine-partial ratios, octaves and envelopes are in `backend/audio.py`; discover labels with `GET /templates`. No template changes the scientific meaning of the image.
 
 The supplied [YouTube reference](https://www.youtube.com/watch?v=ULNMBnooyeQ&t=43s) could not be retrieved by the available web tool, so its audio was not used or copied. The named instrument assignments above follow the user's explicit instructions.
 
-The `backend/examples/nasa-*.wav` files demonstrate all five templates on the same NASA image. Regenerate with `.venv-api/bin/python -m backend.generate_examples`. Equal-duration WAVs have equal sizes even when the sound differs.
+The checked-in `backend/examples/nasa-*.wav` files demonstrate the five earlier templates. Regenerate them, including `cosmic_remnant`, with `.venv-api/bin/python -m backend.generate_examples`. Equal-duration WAVs have equal sizes even when the sound differs.
 
 ## Interactive audio legend
 

@@ -74,11 +74,23 @@ SOUND_TEMPLATES = {
             'blue': {'instrument': 'crystal chimes', 'octave': 1, 'partials': [(1., .5), (2.01, .3), (3.95, .2)], 'attack': .045, 'sustain': 1.},
         },
     },
+    'cosmic_remnant': {
+        'label': 'Cosmic remnant',
+        'description': 'Cas A-inspired: high synth, piano-like X-ray voice, warm strings and brass, and bright metallic accents. Earth-map colors are used as a creative analogy, not telescope data.',
+        'sourceUrl': 'https://chandra.si.edu/photo/2024/sonify9/',
+        'voices': {
+            'neutral': {'instrument': 'high celestial synth', 'octave': 1, 'partials': [(1., .5), (1.005, .2), (2., .3)], 'attack': .06, 'sustain': 1.},
+            'red': {'instrument': 'warm brass-like tone', 'octave': 0, 'partials': [(1., .45), (2., .35), (3., .2)], 'attack': .09, 'sustain': 1.},
+            'green': {'instrument': 'sweeping string-like tone', 'octave': 1, 'partials': [(1., .55), (1.008, .25), (2., .2)], 'attack': .12, 'sustain': 1.},
+            'blue': {'instrument': 'bright modified piano-like tone', 'octave': 1, 'partials': [(1., .6), (2., .25), (3.01, .15)], 'attack': .008, 'sustain': 1.},
+        },
+    },
 }
 
 
 def template_catalog():
     return [{'id': key, 'label': item['label'], 'description': item['description'],
+             **({'sourceUrl': item['sourceUrl']} if 'sourceUrl' in item else {}),
              'instruments': {voice: preset['instrument'] for voice, preset in item['voices'].items()}}
             for key, item in SOUND_TEMPLATES.items()]
 
@@ -121,6 +133,44 @@ def add_eight_d_effect(stereo, scan_mode):
             result[delay:, 0] += dry[:-delay, 1] * level
             result[delay:, 1] += dry[:-delay, 0] * level
     return result
+
+
+def add_cosmic_accents(samples, events, scan_mode):
+    """Add a center triangle cue and restrained metallic hits for bright points."""
+    def add_hit(start, frequencies, length, gain):
+        offset = round(start * SAMPLE_RATE)
+        count = min(round(length * SAMPLE_RATE), len(samples) - offset)
+        if count <= 0:
+            return
+        time = np.arange(count) / SAMPLE_RATE
+        tone = sum(np.sin(2 * np.pi * frequency * time) for frequency in frequencies) / len(frequencies)
+        hit = gain * np.exp(-time * 13) * tone
+        samples[offset:offset + count] += hit[:, None] if samples.ndim == 2 else hit
+
+    if scan_mode == 'circle_outward':
+        add_hit(0, (880, 1760, 2640), .45, .018)
+    piano = {}
+    brightest = {}
+    for event in events:
+        if event['voice'] == 'blue':
+            column = event['column']
+            if event['volume'] > piano.get(column, {}).get('volume', 0):
+                piano[column] = event
+        if event.get('brightness', 0) > .78 and event['voice'] == 'neutral':
+            column = event['column']
+            brightest[column] = max(brightest.get(column, 0), event['volume'])
+    previous = 0
+    for column in range(COLUMNS):
+        event = piano.get(column)
+        volume = event['volume'] if event else 0
+        if event and volume > .008 and volume > previous * 1.35:
+            frequency = 523.25 * 2 ** ((11 - event['row']) / 12)
+            add_hit(column / COLUMNS * (len(samples) / SAMPLE_RATE),
+                    (frequency, frequency * 2, frequency * 3.01), .48, min(.024, volume * .27))
+        previous = volume
+    for column, volume in brightest.items():
+        add_hit(column / COLUMNS * (len(samples) / SAMPLE_RATE), (1320, 2047, 3011), .26, min(.014, volume * .18))
+    return samples
 
 
 def render_audio(events, duration, normalize=True, template='original', spatial_audio=False, scan_mode='clockwise', eight_d_audio=False):
@@ -175,6 +225,8 @@ def render_audio(events, duration, normalize=True, template='original', spatial_
             samples += np.column_stack([np.asarray(sonification.out_channels[str(channel)].values, dtype=np.float64) for channel in range(2)])
         else:
             samples += np.asarray(sonification.out_channels['0'].values, dtype=np.float64)
+    if template == 'cosmic_remnant':
+        samples = add_cosmic_accents(samples, events, scan_mode)
     if eight_d_audio:
         if not spatial_audio:
             raise ValueError('8D audio requires spatial stereo rendering')

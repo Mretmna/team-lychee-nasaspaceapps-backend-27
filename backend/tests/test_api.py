@@ -49,7 +49,7 @@ def test_voice_selection_and_timeline():
     assert client.post('/sonify?voices=purple', files=payload).status_code == 422
 
 
-@pytest.mark.parametrize('template', ['original', 'orchestral', 'medieval', 'modern', 'heavenly'])
+@pytest.mark.parametrize('template', ['original', 'orchestral', 'medieval', 'modern', 'heavenly', 'cosmic_remnant'])
 def test_legend_voices(template):
     from backend.audio import render_audio
     from backend.imaging import COLUMNS
@@ -478,7 +478,7 @@ def test_invalid_scan_mode_is_rejected():
 def test_sound_template_catalog_and_validation():
     catalog = client.get('/templates').json()
     assert catalog['defaultTemplate'] == 'original'
-    assert [item['id'] for item in catalog['templates']] == ['original', 'orchestral', 'medieval', 'modern', 'heavenly']
+    assert [item['id'] for item in catalog['templates']] == ['original', 'orchestral', 'medieval', 'modern', 'heavenly', 'cosmic_remnant']
     orchestral = next(item for item in catalog['templates'] if item['id'] == 'orchestral')
     assert 'choir' in orchestral['instruments']['red']
     assert 'saxophone' in orchestral['instruments']['green']
@@ -487,6 +487,11 @@ def test_sound_template_catalog_and_validation():
     assert 'choir' in heavenly['instruments']['red']
     assert 'string' in heavenly['instruments']['green']
     assert 'chime' in heavenly['instruments']['blue']
+    cosmic = next(item for item in catalog['templates'] if item['id'] == 'cosmic_remnant')
+    assert 'piano' in cosmic['instruments']['blue']
+    assert 'string' in cosmic['instruments']['green']
+    assert 'brass' in cosmic['instruments']['red']
+    assert cosmic['sourceUrl'].startswith('https://chandra.si.edu/')
     for path in ('/analyze', '/sonify'):
         assert client.post(f'{path}?sound_template=unknown').status_code == 422
 
@@ -501,7 +506,7 @@ def test_all_templates_render_distinct_continuous_audio():
     buffer = io.BytesIO()
     Image.fromarray(image).save(buffer, format='PNG')
     sounds = []
-    for template in ('original', 'orchestral', 'medieval', 'modern', 'heavenly'):
+    for template in ('original', 'orchestral', 'medieval', 'modern', 'heavenly', 'cosmic_remnant'):
         response = client.post(f'/sonify?duration_seconds=2&scan_mode=linear&sound_template={template}',
                                files={'file': ('map.png', buffer.getvalue(), 'image/png')})
         assert response.headers['x-sound-template'] == template
@@ -512,7 +517,7 @@ def test_all_templates_render_distinct_continuous_audio():
         analysis = client.post(f'/analyze?duration_seconds=2&sound_template={template}',
                                files={'file': ('map.png', buffer.getvalue(), 'image/png')}).json()
         assert analysis['soundTemplate'] == template
-    assert len(set(sounds)) == 5
+    assert len(set(sounds)) == 6
     assert len({len(sound) for sound in sounds}) == 1
 
 
@@ -526,6 +531,6 @@ def test_original_remains_default_template():
 def test_demo_exposes_template_selector_and_sends_choice():
     html = client.get('/demo').text
     assert 'id="sound-template"' in html
-    for template in ('original', 'orchestral', 'medieval', 'modern', 'heavenly'):
+    for template in ('original', 'orchestral', 'medieval', 'modern', 'heavenly', 'cosmic_remnant'):
         assert f'value="{template}"' in html
     assert 'sound_template:soundTemplate.value' in html

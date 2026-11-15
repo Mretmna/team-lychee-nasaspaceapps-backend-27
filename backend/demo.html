@@ -28,7 +28,7 @@ audio{display:block;width:100%}#status{min-height:1.5rem}
 <label>Map image <input id="file" type="file" accept=".png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,image/png,image/jpeg,image/webp,image/bmp,image/tiff"></label>
 <label>Duration <input id="duration" type="number" min="2" max="30" step="1" value="12"> seconds</label>
 <label>Scan path <select id="scan-mode"><option value="clockwise">Clockwise from center</option><option value="linear">Left to right</option><option value="circle_outward">Circle expanding from center</option><option value="circle_inward">Circle contracting to center</option></select></label>
-<label>Sound template <select id="sound-template"><option value="original">Original colors</option><option value="orchestral">Choir · Saxophone · Violin</option><option value="medieval">Medieval</option><option value="modern">Modern</option><option value="heavenly">Heavenly</option></select></label>
+<label>Sound template <select id="sound-template"><option value="original">Original colors</option><option value="orchestral">Choir · Saxophone · Violin</option><option value="medieval">Medieval</option><option value="modern">Modern</option><option value="heavenly">Heavenly</option><option value="cosmic_remnant">Cosmic remnant</option></select></label>
 <p id="template-description">The original rounded red bass, soft green tone, and blue bell.</p>
 <fieldset id="legend">
 <legend>Listen to the color key</legend>
@@ -169,7 +169,7 @@ document.getElementById('legend').addEventListener('click',async(event)=>{
     if(legendAbort===controller)legendAbort=null;
   }
 });
-const descriptions={original:'The original rounded red bass, soft green tone, and blue bell.',orchestral:'Red: synthesized choir · Green: synthesized saxophone · Blue: synthesized violin.',medieval:'Red: low horn · Green: lute · Blue: reed (synthesized).',modern:'Red: synth bass · Green: electric pad · Blue: glassy lead.',heavenly:'Red: angelic choir · Green: floating strings · Blue: crystal chimes · Neutral: halo choir. A soft echo surrounds the sound.'};
+const descriptions={original:'The original rounded red bass, soft green tone, and blue bell.',orchestral:'Red: synthesized choir · Green: synthesized saxophone · Blue: synthesized violin.',medieval:'Red: low horn · Green: lute · Blue: reed (synthesized).',modern:'Red: synth bass · Green: electric pad · Blue: glassy lead.',heavenly:'Red: angelic choir · Green: floating strings · Blue: crystal chimes · Neutral: halo choir. A soft echo surrounds the sound.',cosmic_remnant:'Cas A-inspired high synth, piano-like blue voice, strings, brass, and metallic accents. Choose the outward circle scan for a center cue. Earth-map colors are a creative analogy, not telescope data.'};
 let imageURL=null,audioURL=null,generation=0;
 let generationAbort=null;
 let analysis=null;
@@ -248,7 +248,7 @@ durationInput.addEventListener('input',()=>{
   generationError.textContent='';
 });
 scanMode.addEventListener('change',()=>{clearAudio();status.textContent='Scan path changed. Generate a new sound to match the marker.';});
-soundTemplate.addEventListener('change',()=>{clearAudio();templateDescription.textContent=descriptions[soundTemplate.value];status.textContent='Sound template changed. Generate a new sound to hear it.';});
+soundTemplate.addEventListener('change',()=>{clearAudio();if(soundTemplate.value==='cosmic_remnant')scanMode.value='circle_outward';templateDescription.textContent=descriptions[soundTemplate.value];status.textContent='Sound template changed. Generate a new sound to hear it.';});
 spatialAudio.addEventListener('change',()=>{clearAudio();status.textContent='Spatial audio setting changed. Generate a new sound to hear it.';});
 eightDAudio.addEventListener('change',()=>{clearAudio();status.textContent='8D headphone effect changed. Generate a new sound to hear it.';});
 file.addEventListener('change',()=>{
