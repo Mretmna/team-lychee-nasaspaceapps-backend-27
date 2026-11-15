@@ -74,7 +74,7 @@ app.add_middleware(BodyLimit)
 app.add_middleware(CORSMiddleware,
     allow_origins=[x.strip() for x in os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000,http://192.168.1.82:3000').split(',') if x.strip()],
     allow_methods=['GET', 'POST'], allow_headers=['Content-Type'],
-    expose_headers=['X-Source-Id', 'X-Source-Url', 'X-Image-SHA256', 'X-Audio-Duration', 'X-Sample-Rate', 'X-Audio-Normalization', 'X-Event-Count', 'X-Mapping-Version', 'X-Scan-Mode', 'X-Sound-Template', 'Content-Disposition'])
+    expose_headers=['X-Source-Id', 'X-Source-Url', 'X-Image-SHA256', 'X-Audio-Duration', 'X-Sample-Rate', 'X-Audio-Normalization', 'X-Event-Count', 'X-Mapping-Version', 'X-Scan-Mode', 'X-Sound-Template', 'X-Spatial-Audio', 'X-8D-Audio', 'Content-Disposition'])
 
 Duration = Annotated[float, Query(ge=2, le=30, allow_inf_nan=False, description='Playback scan duration, not observation time.')]
 ScanMode = Literal['clockwise', 'linear', 'circle_outward', 'circle_inward']
@@ -143,7 +143,11 @@ async def load_input(file):
     return data, source
 
 
+<<<<<<< HEAD
 def process(data, source, duration, audio, normalize=True, scan_mode='clockwise', template='original', voices='red,green,blue,neutral'):
+=======
+def process(data, source, duration, audio, normalize=True, scan_mode='clockwise', template='original', spatial_audio=False, eight_d_audio=False):
+>>>>>>> 761c7e0 (backend sonlanıyo)
     # Serialize expensive renders per worker and reject excess work instead of queuing.
     with render_request():
         rgb, fmt = decode_image(data)
@@ -162,8 +166,9 @@ def process(data, source, duration, audio, normalize=True, scan_mode='clockwise'
         metadata = {'source': source, 'imageSha256': hashlib.sha256(data).hexdigest(),
                     'image': {'width': rgb.shape[1], 'height': rgb.shape[0], 'format': fmt},
                     'mapping': mapping, 'sampleRate': SAMPLE_RATE,
-                    'soundTemplate': template,
+                    'soundTemplate': template, 'spatialAudio': spatial_audio or eight_d_audio, 'eightDAudio': eight_d_audio,
                     'instruments': {voice: preset['instrument'] for voice, preset in SOUND_TEMPLATES[template]['voices'].items()}}
+<<<<<<< HEAD
         return (render_audio(events, duration, normalize, template), metadata) if audio else metadata
 
 
@@ -171,14 +176,34 @@ def process(data, source, duration, audio, normalize=True, scan_mode='clockwise'
 async def analyze(duration_seconds: Duration = 12, scan_mode: ScanMode = 'clockwise', sound_template: SoundTemplate = 'original', file: Annotated[UploadFile | None, File()] = None, voices: Voices = 'red,green,blue,neutral'):
     data, source = await load_input(file)
     return await run_in_threadpool(process, data, source, duration_seconds, False, True, scan_mode, sound_template, voices)
+=======
+        return (render_audio(events, duration, normalize, template, spatial_audio or eight_d_audio, scan_mode, eight_d_audio), metadata) if audio else metadata
+    except ImageError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    finally:
+        render_lock.release()
+
+
+@app.post('/analyze')
+async def analyze(duration_seconds: Duration = 12, scan_mode: ScanMode = 'clockwise', sound_template: SoundTemplate = 'original', spatial_audio: bool = False, eight_d_audio: bool = False, file: Annotated[UploadFile | None, File()] = None):
+    data, source = await load_input(file)
+    return await run_in_threadpool(process, data, source, duration_seconds, False, True, scan_mode, sound_template, spatial_audio, eight_d_audio)
+>>>>>>> 761c7e0 (backend sonlanıyo)
 
 
 @app.post('/sonify', response_class=Response, responses={200: {
     'content': {'audio/wav': {'schema': {'type': 'string', 'format': 'binary'}}},
+<<<<<<< HEAD
     'description': 'Downloadable mono 16-bit PCM WAV'}})
 async def sonify(duration_seconds: Duration = 12, scan_mode: ScanMode = 'clockwise', sound_template: SoundTemplate = 'original', normalize: Annotated[bool, Query(description='Normalize playback peak to 80 percent; disable to compare absolute brightness between images.')] = True, file: Annotated[UploadFile | None, File()] = None, voices: Voices = 'red,green,blue,neutral'):
     data, source = await load_input(file)
     audio, metadata = await run_in_threadpool(process, data, source, duration_seconds, True, normalize, scan_mode, sound_template, voices)
+=======
+    'description': 'Downloadable mono or spatial stereo 16-bit PCM WAV'}})
+async def sonify(duration_seconds: Duration = 12, scan_mode: ScanMode = 'clockwise', sound_template: SoundTemplate = 'original', normalize: Annotated[bool, Query(description='Normalize playback peak to 80 percent; disable to compare absolute brightness between images.')] = True, spatial_audio: bool = False, eight_d_audio: bool = False, file: Annotated[UploadFile | None, File()] = None):
+    data, source = await load_input(file)
+    audio, metadata = await run_in_threadpool(process, data, source, duration_seconds, True, normalize, scan_mode, sound_template, spatial_audio, eight_d_audio)
+>>>>>>> 761c7e0 (backend sonlanıyo)
     return Response(audio, media_type='audio/wav', headers={
         'Content-Disposition': 'attachment; filename="sonification.wav"',
         'Cache-Control': 'no-store',
@@ -188,5 +213,6 @@ async def sonify(duration_seconds: Duration = 12, scan_mode: ScanMode = 'clockwi
         'X-Audio-Normalization': 'peak-0.8' if normalize else 'fixed-gain',
         'X-Mapping-Version': metadata['mapping']['mappingVersion'],
         'X-Scan-Mode': metadata['mapping']['scanMode'],
-        'X-Sound-Template': sound_template,
+        'X-Sound-Template': sound_template, 'X-Spatial-Audio': 'stereo' if spatial_audio or eight_d_audio else 'mono',
+        'X-8D-Audio': 'true' if eight_d_audio else 'false',
         'X-Event-Count': str(metadata['mapping']['eventCount'])})

@@ -225,6 +225,74 @@ def test_normalized_playback_is_audible_and_bounded():
         assert int(r.headers['x-event-count']) > 0
 
 
+def test_eight_d_effect_is_stereo_and_distinct_from_spatial_audio():
+    regular = client.post('/sonify?duration_seconds=2&spatial_audio=true')
+    effect = client.post('/sonify?duration_seconds=2&eight_d_audio=true')
+    assert regular.status_code == effect.status_code == 200
+    assert effect.headers['x-spatial-audio'] == 'stereo'
+    assert effect.headers['x-8d-audio'] == 'true'
+    assert regular.headers['x-8d-audio'] == 'false'
+    with wave.open(io.BytesIO(effect.content)) as wav:
+        assert wav.getnchannels() == 2
+        assert wav.getnframes() == 44100
+        samples = np.frombuffer(wav.readframes(wav.getnframes()), dtype='<i2').reshape(-1, 2).astype(float)
+    right = samples[11025:22050]
+    left = samples[33075:44100]
+    assert np.mean(right[:, 1] ** 2) > np.mean(right[:, 0] ** 2)
+    assert np.mean(left[:, 0] ** 2) > np.mean(left[:, 1] ** 2)
+    assert effect.content != regular.content
+    analysis = client.post('/analyze?duration_seconds=2&eight_d_audio=true').json()
+    assert analysis['eightDAudio'] is True and analysis['spatialAudio'] is True
+
+
+def test_spatial_scan_coordinates_follow_the_visible_marker():
+    from backend.audio import spatial_coordinates
+    clockwise, _ = spatial_coordinates('clockwise', 0)
+    linear, _ = spatial_coordinates('linear', 0)
+    assert clockwise[12] == pytest.approx(.75)  # marker at right
+    assert clockwise[36] == pytest.approx(.25)  # marker at left
+    assert linear[0] == pytest.approx(.25) and linear[-1] == pytest.approx(.75)
+    outward_right, _ = spatial_coordinates('circle_outward', 3)
+    outward_left, _ = spatial_coordinates('circle_outward', 9)
+    inward_right, _ = spatial_coordinates('circle_inward', 3)
+    assert outward_right[0] == pytest.approx(0)
+    assert .65 < outward_right[-1] < .8
+    assert .15 < outward_left[-1] < .3
+    assert inward_right[0] == pytest.approx(outward_right[-1])
+    assert inward_right[-1] == pytest.approx(0)
+
+
+def test_spatial_circles_change_apparent_distance():
+    from backend.audio import render_audio
+    rgb = np.full((96, 96, 3), .5)
+    for mode, start_quieter in (('circle_outward', True), ('circle_inward', False)):
+        events, _ = image_events(rgb, 2, mode)
+        with wave.open(io.BytesIO(render_audio(events, 2, spatial_audio=True, scan_mode=mode))) as wav:
+            samples = np.frombuffer(wav.readframes(wav.getnframes()), dtype='<i2').reshape(-1, 2).astype(float)
+        quarter = len(samples) // 4
+        first = np.mean(samples[:quarter] ** 2)
+        last = np.mean(samples[-quarter:] ** 2)
+        assert (first < last) == start_quieter
+
+
+def test_spatial_audio_returns_moving_stereo_wav():
+    response = client.post('/sonify?duration_seconds=2&spatial_audio=true')
+    assert response.status_code == 200
+    assert response.headers['x-spatial-audio'] == 'stereo'
+    with wave.open(io.BytesIO(response.content)) as wav:
+        assert wav.getnchannels() == 2
+        assert wav.getframerate() == 22050
+        samples = np.frombuffer(wav.readframes(wav.getnframes()), dtype='<i2').reshape(-1, 2)
+    assert samples.shape == (44100, 2)
+    assert np.max(np.abs(samples[:, 0].astype(int) - samples[:, 1].astype(int))) > 100
+    right_quarter = samples[11025:22050].astype(float)
+    left_quarter = samples[33075:44100].astype(float)
+    assert np.mean(right_quarter[:, 1] ** 2) > 2 * np.mean(right_quarter[:, 0] ** 2)
+    assert np.mean(left_quarter[:, 0] ** 2) > 2 * np.mean(left_quarter[:, 1] ** 2)
+    analysis = client.post('/analyze?duration_seconds=2&spatial_audio=true').json()
+    assert analysis['spatialAudio'] is True
+
+
 def test_transparent_image_gets_explanation():
     r = client.post('/sonify', files={'file': ('transparent.png', picture(0, mode='RGBA'))})
     assert r.status_code == 422

@@ -83,10 +83,50 @@ def template_catalog():
             for key, item in SOUND_TEMPLATES.items()]
 
 
-def render_audio(events, duration, normalize=True, template='original'):
+def spatial_coordinates(scan_mode, row):
+    """Map the visible scan position to STRAUSS azimuth/polar coordinates."""
+    progress = np.linspace(0, 1, COLUMNS + 1)
+    if scan_mode == 'linear':
+        return .25 + .5 * progress, np.full_like(progress, .5)
+    if scan_mode == 'clockwise':
+        # Screen angles advance clockwise; STRAUSS azimuth advances toward left.
+        return 1 - progress, np.full_like(progress, .5)
+    if scan_mode in ('circle_outward', 'circle_inward'):
+        extent = progress if scan_mode == 'circle_outward' else 1 - progress
+        angle = (row + .5) / 12
+        shortest_turn = -angle if angle <= .5 else 1 - angle
+        azimuth = np.mod(shortest_turn * extent, 1)
+        polar = .5 - .2 * np.cos(2 * np.pi * angle) * extent
+        return azimuth, polar
+    raise ValueError(f'Unknown spatial scan mode: {scan_mode}')
+
+
+def add_eight_d_effect(stereo, scan_mode):
+    """Add a headphone orbit and short cross-ear reflections to spatial stereo."""
+    progress = np.arange(len(stereo), dtype=np.float64) / max(1, len(stereo) - 1)
+    if scan_mode == 'linear':
+        pan = 2 * progress - 1
+    else:
+        pan = np.sin(2 * np.pi * progress)
+        if scan_mode in ('circle_outward', 'circle_inward'):
+            extent = progress if scan_mode == 'circle_outward' else 1 - progress
+            pan *= .3 + .7 * extent
+    mid = stereo.mean(axis=1)
+    orbit = np.column_stack((mid * np.sqrt((1 - pan) / 2), mid * np.sqrt((1 + pan) / 2)))
+    dry = .45 * stereo + .8 * orbit
+    result = dry.copy()
+    for seconds, level in ((.13, .12), (.31, .07)):
+        delay = round(seconds * SAMPLE_RATE)
+        if delay < len(result):
+            result[delay:, 0] += dry[:-delay, 1] * level
+            result[delay:, 1] += dry[:-delay, 0] * level
+    return result
+
+
+def render_audio(events, duration, normalize=True, template='original', spatial_audio=False, scan_mode='clockwise', eight_d_audio=False):
     if template not in SOUND_TEMPLATES:
         raise ValueError(f'Unknown sound template: {template}')
-    samples = np.zeros(round(duration * SAMPLE_RATE), dtype=np.float64)
+    samples = np.zeros((round(duration * SAMPLE_RATE), 2) if spatial_audio else round(duration * SAMPLE_RATE), dtype=np.float64)
     for voice, preset in SOUND_TEMPLATES[template]['voices'].items():
         layer = [event for event in events if event['voice'] == voice]
         if not layer:
@@ -97,14 +137,24 @@ def render_audio(events, duration, normalize=True, template='original'):
         for event in layer:
             volumes[event['row'], event['column']] = event['volume']
         volumes[:, -1] = volumes[:, -2]
+        if spatial_audio and scan_mode in ('circle_outward', 'circle_inward'):
+            radius_extent = np.linspace(0, 1, COLUMNS + 1)
+            if scan_mode == 'circle_inward':
+                radius_extent = 1 - radius_extent
+            volumes *= .6 + .4 * radius_extent
         active_rows = np.flatnonzero(np.any(volumes > 0, axis=1))
-        keys = ['pitch', 'volume', 'time_evo']
-        sources = Objects(keys)
-        sources.fromdict({
+        keys = ['pitch', 'volume', 'time_evo'] + (['azimuth', 'polar'] if spatial_audio else [])
+        source_values = {
             'pitch': [(11 - row + .5) / 12 for row in active_rows],
             'volume': [volumes[row] for row in active_rows],
             'time_evo': [np.linspace(0, 1, COLUMNS + 1) for _ in active_rows],
-        })
+        }
+        if spatial_audio:
+            coordinates = [spatial_coordinates(scan_mode, row) for row in active_rows]
+            source_values['azimuth'] = [azimuth for azimuth, _ in coordinates]
+            source_values['polar'] = [polar for _, polar in coordinates]
+        sources = Objects(keys)
+        sources.fromdict(source_values)
         sources.apply_mapping_functions(map_lims={key: (0, 1) for key in keys})
         generator = Synthesizer(samprate=SAMPLE_RATE)
         oscillators = {f'osc{i + 1}': {'form': 'sine', 'level': 0., 'detune': 0., 'phase': 0.} for i in range(3)}
@@ -119,9 +169,16 @@ def render_audio(events, duration, normalize=True, template='original'):
         }, clear_oscs=False)
         notes = [note[:-1] + str(int(note[-1]) + preset['octave']) for note in NOTES]
         score = Score([notes], duration, pitch_binning='uniform')
-        sonification = Sonification(score, sources, generator, audio_setup='mono', samprate=SAMPLE_RATE)
+        sonification = Sonification(score, sources, generator, audio_setup='stereo' if spatial_audio else 'mono', samprate=SAMPLE_RATE)
         sonification.render()
-        samples += np.asarray(sonification.out_channels['0'].values, dtype=np.float64)
+        if spatial_audio:
+            samples += np.column_stack([np.asarray(sonification.out_channels[str(channel)].values, dtype=np.float64) for channel in range(2)])
+        else:
+            samples += np.asarray(sonification.out_channels['0'].values, dtype=np.float64)
+    if eight_d_audio:
+        if not spatial_audio:
+            raise ValueError('8D audio requires spatial stereo rendering')
+        samples = add_eight_d_effect(samples, scan_mode)
     if not np.isfinite(samples).all():
         raise RuntimeError('STRAUSS produced nonfinite audio')
     if template == 'heavenly':
