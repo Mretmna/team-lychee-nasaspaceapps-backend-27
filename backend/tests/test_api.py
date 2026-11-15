@@ -10,6 +10,25 @@ from backend.imaging import decode_image, image_events, grid_events, radial_grid
 client = TestClient(app)
 
 
+@pytest.mark.parametrize('method,url', [('post', '/sonify?duration_seconds=2'), ('get', '/legend/red')])
+def test_render_failure_returns_safe_error_and_allows_retry(monkeypatch, method, url):
+    from importlib import import_module
+
+    module = import_module('backend.app')
+
+    def fail_render(*args, **kwargs):
+        raise RuntimeError('Internal rendering details')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(module, 'render_audio', fail_render)
+        response = client.request(method, url, headers={'Origin': 'http://localhost:3000'})
+        assert response.status_code == 500
+        assert response.json() == {'detail': 'The server could not finish processing. Try again.'}
+        assert response.headers['access-control-allow-origin'] == 'http://localhost:3000'
+
+    assert pcm(client.request(method, url)).size == 44100
+
+
 def test_voice_selection_and_timeline():
     buffer = io.BytesIO()
     image = Image.new('RGB', (48, 24), (0, 0, 255))

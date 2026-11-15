@@ -1,6 +1,8 @@
 """FastAPI service for user-provided raster maps and a bundled NASA fallback."""
+from contextlib import contextmanager
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import threading
@@ -17,6 +19,25 @@ from .audio import SAMPLE_RATE, render_audio, template_catalog, SOUND_TEMPLATES
 ASSETS = Path(__file__).parent / 'assets'
 SOURCE = json.loads((ASSETS / 'nasa-ocean.json').read_text())
 render_lock = threading.Lock()
+logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def render_request():
+    """Release the render slot and return a safe error if processing fails."""
+    if not render_lock.acquire(blocking=False):
+        raise HTTPException(503, 'Sonification worker is busy. Retry shortly.', headers={'Retry-After': '2'})
+    try:
+        yield
+    except ImageError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception('Sonification request failed')
+        raise HTTPException(500, 'The server could not finish processing. Try again.') from exc
+    finally:
+        render_lock.release()
 
 
 class BodyLimit:
@@ -84,21 +105,20 @@ def sources():
 @app.get('/legend/{voice}', response_class=Response,
          responses={200: {'content': {'audio/wav': {}}, 'description': 'Two-second isolated instrument preview'}})
 def legend(voice: Literal['red', 'green', 'blue', 'neutral'], sound_template: SoundTemplate = 'original'):
-    if not render_lock.acquire(blocking=False):
-        raise HTTPException(503, 'Sonification worker is busy. Retry shortly.', headers={'Retry-After': '2'})
-    try:
+    with render_request():
         # A fixed middle band isolates timbre while retaining template octaves.
         events = [{'voice': voice, 'row': 5, 'column': column, 'volume': 1 / 12}
                   for column in range(COLUMNS)]
         audio = render_audio(events, 2, True, sound_template)
         return Response(audio, media_type='audio/wav', headers={'Cache-Control': 'no-store'})
-    finally:
-        render_lock.release()
 
 
 @app.get('/sources/nasa-ocean/image')
 def source_image():
-    return FileResponse(ASSETS / 'nasa-ocean.jpg', media_type='image/jpeg')
+    image = ASSETS / 'nasa-ocean.jpg'
+    if not image.is_file():
+        raise HTTPException(503, 'Bundled NASA image is unavailable.')
+    return FileResponse(image, media_type='image/jpeg')
 
 
 async def load_input(file):
@@ -113,6 +133,9 @@ async def load_input(file):
     else:
         try:
             data = await file.read(MAX_BYTES + 1)
+        except OSError as exc:
+            logger.exception('Could not read uploaded image')
+            raise HTTPException(500, 'The server could not read the upload. Select the image again and retry.') from exc
         finally:
             await file.close()
         source = {'id': 'user-upload', 'title': 'User-provided image', 'sourceUrl': None,
@@ -122,9 +145,7 @@ async def load_input(file):
 
 def process(data, source, duration, audio, normalize=True, scan_mode='clockwise', template='original', voices='red,green,blue,neutral'):
     # Serialize expensive renders per worker and reject excess work instead of queuing.
-    if not render_lock.acquire(blocking=False):
-        raise HTTPException(503, 'Sonification worker is busy. Retry shortly.', headers={'Retry-After': '2'})
-    try:
+    with render_request():
         rgb, fmt = decode_image(data)
         events, mapping = image_events(rgb, duration, scan_mode)
         if audio and not events:
@@ -144,10 +165,6 @@ def process(data, source, duration, audio, normalize=True, scan_mode='clockwise'
                     'soundTemplate': template,
                     'instruments': {voice: preset['instrument'] for voice, preset in SOUND_TEMPLATES[template]['voices'].items()}}
         return (render_audio(events, duration, normalize, template), metadata) if audio else metadata
-    except ImageError as exc:
-        raise HTTPException(exc.status, str(exc)) from exc
-    finally:
-        render_lock.release()
 
 
 @app.post('/analyze')
