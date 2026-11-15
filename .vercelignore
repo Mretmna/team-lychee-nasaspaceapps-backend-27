@@ -4,6 +4,4 @@ scripts/
 docs/
 requirements-data.txt
 
-backend/
 .venv-api/
-requirements-api.txt
